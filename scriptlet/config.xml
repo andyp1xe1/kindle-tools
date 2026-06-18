@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<widget id="com.chillguys.wallpapers" version="1.0" viewmodes="application"
+        xmlns="http://www.w3.org/ns/widgets"
+        xmlns:kindle="http://kindle.amazon.com/ns/widget-extensions">
+    <name xml:lang="en">Wallpapers</name>
+    <content src="index.html" />
+    <kindle:permissions>
+        <kindle:permission name="local-port-access" />
+    </kindle:permissions>
+    <feature name="http://kindle.amazon.com/apis" required="true">
+        <param name="net" value="yes" />
+        <param name="device" value="yes" />
+    </feature>
+    <kindle:settings>
+        <kindle:setting name="internetRequired" value="no" />
+        <kindle:setting name="saveContext" value="no" />
+    </kindle:settings>
+</widget>
