@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <title>Kindle Wallpapers</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header>
+      <h1>wallpapers</h1>
+      <p class="dim small" id="meta">…</p>
+    </header>
+
+    <section id="claim-banner" class="banner" hidden>
+      <p>Found <span id="claim-count">0</span>existing wallpapers. Save them as a preset:</p>
+      <form class="banner-row" id="claim-form">
+        <input
+          type="text"
+          id="claim-name"
+          placeholder="preset name"
+          value="default"
+          autocomplete="off"
+        >
+        <button class="primary" type="submit">Save</button>
+      </form>
+    </section>
+
+    <section id="empty-banner" class="banner" hidden>
+      <p>Create your first preset:</p>
+      <form class="banner-row" id="first-form">
+        <input type="text" id="first-name" placeholder="preset name" autocomplete="off">
+        <button class="primary" type="submit">Create</button>
+      </form>
+    </section>
+
+    <section id="presets" class="presets" hidden>
+      <nav class="tabs" id="tabs"></nav>
+
+      <div class="preset-bar">
+        <div class="preset-actions">
+          <button type="button" id="activate-btn">Apply</button>
+          <button type="button" id="rename-btn">Rename</button>
+          <button type="button" id="delete-btn" class="danger">Delete</button>
+        </div>
+        <button type="button" id="new-preset-btn" class="ghost">+ New preset</button>
+      </div>
+
+      <section class="upload">
+        <label class="picker" for="file">
+          <span class="big">＋</span>
+          <span>Add wallpapers</span>
+          <span class="dim small">auto crop · 8-bit PNG</span>
+        </label>
+        <input type="file" id="file" accept="image/*" multiple hidden>
+      </section>
+
+      <section class="grid" id="grid"></section>
+    </section>
+
+    <details class="advanced">
+      <summary>Import from device path</summary>
+      <p class="dim small">
+        Copy <code>bg_ssNN.png</code>files from a folder on the device into a new preset.
+      </p>
+      <form class="import-row" id="import-form">
+        <input type="text" id="import-path" placeholder="/mnt/us/wallpapers" autocomplete="off">
+        <input type="text" id="import-name" placeholder="preset name" autocomplete="off">
+        <button type="submit">Import</button>
+      </form>
+    </details>
+
+    <div id="modal" class="modal" hidden>
+      <div class="modal-backdrop"></div>
+      <img id="modal-img" alt="">
+      <button type="button" class="modal-close" id="modal-close" aria-label="Close">×</button>
+    </div>
+
+    <div id="dialog" class="dialog" hidden role="dialog" aria-modal="true">
+      <div class="dialog-backdrop"></div>
+      <form class="dialog-panel" id="dialog-form">
+        <h3 id="dialog-title"></h3>
+        <p id="dialog-message"></p>
+        <input type="text" id="dialog-input" autocomplete="off">
+        <div class="dialog-actions">
+          <button type="button" id="dialog-cancel">Cancel</button>
+          <button type="submit" id="dialog-confirm" class="primary">OK</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="crop" class="crop" hidden>
+      <div class="crop-backdrop"></div>
+      <div class="crop-panel">
+        <div class="crop-stage" id="crop-stage">
+          <img id="crop-img" alt="">
+          <div id="crop-rect">
+            <span class="crop-h tl" data-h="tl"></span>
+            <span class="crop-h tr" data-h="tr"></span>
+            <span class="crop-h bl" data-h="bl"></span>
+            <span class="crop-h br" data-h="br"></span>
+          </div>
+        </div>
+        <div class="crop-bar">
+          <p id="crop-status" class="dim small"></p>
+          <div class="crop-controls">
+            <div class="crop-zoom">
+              <span class="dim small">zoom</span>
+              <input type="range" id="crop-zoom" min="0" max="1" step="0.005" value="0">
+            </div>
+            <div class="crop-actions">
+              <button type="button" id="crop-cancel">Cancel</button>
+              <button type="button" id="crop-skip">Skip</button>
+              <button type="button" id="crop-next" class="primary">Use</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
