@@ -1,0 +1,16 @@
+# nix / direnv
+.direnv/
+result
+result-*
+
+# build artifacts
+dev/
+dist/
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+kindle/
