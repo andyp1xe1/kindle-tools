@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>JS REPL</title>
+  <script>
+    try {
+      var ppi = kindle.device.getCSSPixelsPerInch();
+      if (ppi > 0) document.documentElement.style.fontSize = (ppi * 0.15) + "px";
+    } catch (_) { }
+  </script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    html {
+      font-size: 44px;
+    }
+
+    body {
+      font-family: sans-serif;
+      background: #fff;
+      color: #000;
+      text-align: center;
+    }
+
+    .wrap {
+      width: 100%;
+      height: 100%;
+      border-collapse: collapse;
+    }
+
+    .cell {
+      vertical-align: middle;
+    }
+
+    h1 {
+      font-size: 2.4em;
+      margin-bottom: 0.3em;
+    }
+
+    .url {
+      font: 1em monospace;
+      color: #444;
+      word-wrap: break-word;
+      padding: 0 1em;
+    }
+
+    .note {
+      font-size: 0.95em;
+      color: #666;
+      margin-top: 1em;
+    }
+
+    .note.big {
+      font-size: 1.4em;
+      color: #000;
+    }
+
+    button {
+      font-size: 1em;
+      margin-top: 2em;
+      padding: 0.65em 1.3em;
+      background: #000;
+      color: #fff;
+      border: 0;
+    }
+
+    .hide {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <table class="wrap">
+    <tr>
+      <td class="cell">
+        <div>
+          <h1>JS REPL</h1>
+          <div class="url" id="url">waiting for wifi&hellip;</div>
+          <h1 class="hide" id="unreachable">Server unreachable</h1>
+          <div class="note big hide" id="need-wifi">need wifi</div>
+          <div class="note">Open this URL from your laptop <br /> to send snippets.</div>
+          <button id="stop" type="button">Stop server</button>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <script>
+    (function () {
+      var urlEl = document.getElementById("url");
+      var defaultUrlText = urlEl.textContent;
+      function setHidden(id, hidden) {
+        var el = document.getElementById(id);
+        el.className = el.className.replace(/\s*\bhide\b/, "") + (hidden ? " hide" : "");
+      }
+      function wifiOn() {
+        try {return kindle.net.getWirelessState() === "on";}
+        catch (_) {return true;}
+      }
+      function setText(url) {
+        urlEl.textContent = url || defaultUrlText;
+        setHidden("url", false);
+        setHidden("unreachable", true);
+        setHidden("stop", false);
+      }
+      function showUnreachable() {
+        setHidden("url", true);
+        setHidden("unreachable", false);
+        setHidden("stop", true);
+      }
+      function updateWifiHint() {setHidden("need-wifi", wifiOn());}
+      function poll() {
+        updateWifiHint();
+        var x = new XMLHttpRequest();
+        x.open("GET", "http://127.0.0.1:6970/ip", true);
+        x.timeout = 2000;
+        x.onload = function () {
+          if (x.status !== 200) {showUnreachable(); return;}
+          var ip = (x.responseText || "").replace(/\s+$/, "");
+          setText(/^\d+\.\d+\.\d+\.\d+$/.test(ip) ? "http://" + ip + ":6970" : "");
+        };
+        x.onerror = showUnreachable;
+        x.ontimeout = showUnreachable;
+        x.send();
+      }
+      updateWifiHint();
+      setTimeout(poll, 500);
+      setInterval(poll, 1500);
+    })();
+
+    document.getElementById("stop").addEventListener("click", function () {
+      try {
+        var x = new XMLHttpRequest();
+        x.open("POST", "http://127.0.0.1:6970/kill", true);
+        x.send();
+      } catch (_e) { }
+    });
+  </script>
+  <script src="http://127.0.0.1:6970/executor.js"></script>
+</body>
+
+</html>
