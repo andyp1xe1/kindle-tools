@@ -1,4 +1,4 @@
-package server
+package wallpapers
 
 import (
 	"encoding/json"

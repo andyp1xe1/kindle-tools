@@ -1,13 +1,15 @@
-// Package server runs the wallpaper manager HTTP server.
+// Package server is the shared HTTP scaffolding for the launcher binaries.
+// Server embeds an *http.ServeMux and pre-wires the scriptlet endpoints:
 //
-// Layout under /usr/share/blanket:
+//	GET  /url    external-facing URL as text, or empty body if no IP
+//	GET  /qr     PNG QR code of the external URL, or 503 if no IP
+//	POST /kill   shutdown
+//	GET  /ping   liveness, returns the server name
 //
-//	wallpapers/<preset>/bg_ssNN.png  — user-owned preset directories
-//	screensaver -> wallpapers/<preset>  — symlink the OS reads from
-//
-// "Activating" a preset swaps the symlink atomically; uploads land inside the
-// preset dir directly, so they show up on the next screen-off without any
-// extra plumbing.
+// /url, /qr, /kill are 127.0.0.1-only — the on-Kindle scriptlet hits them
+// directly, so the token doesn't appear in scriptlet URLs. The token only
+// gates the LAN-facing routes registered via HandleProtected. /ping is open
+// so launcher shell scripts can probe liveness without auth.
 package server
 
 import (
@@ -19,96 +21,102 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"regexp"
-	"syscall"
+	"strings"
 	"time"
 
+	"github.com/skip2/go-qrcode"
+
 	"wallpapers/internal/kindle"
-	"wallpapers/internal/web"
 )
 
-const (
-	blanketDir = "/usr/share/blanket"
-	devDir     = "./dev"
-	tokenFile  = "/tmp/wallpapers.token"
-)
+type Server struct {
+	*http.ServeMux
+	Port  int
+	Token string
 
-// Config is the runtime configuration passed by main.
-type Config struct {
-	Port    int
-	DevMode bool
+	name string
+	dev  bool
+	stop context.CancelFunc
 }
 
-var (
-	port    int
-	devMode bool
-	blanket string
-	token   string // random per-startup URL prefix; gates the whole UI + API
-	stop    context.CancelFunc
-
-	ssNameRE     = regexp.MustCompile(`^bg_ss\d{2,3}\.png$`)
-	presetNameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$`)
-)
-
-// routes registers all handlers
-func routes(mux *http.ServeMux, pfx string) {
-	mux.Handle(pfx+"/", http.StripPrefix(pfx, http.FileServer(http.FS(web.FS))))
-	mux.HandleFunc("GET "+pfx+"/api/state", handleState)
-	mux.HandleFunc("POST "+pfx+"/api/claim", handleClaim)
-	mux.HandleFunc("POST "+pfx+"/api/presets", handleCreatePreset)
-	mux.HandleFunc("DELETE "+pfx+"/api/presets/{name}", handleDeletePreset)
-	mux.HandleFunc("POST "+pfx+"/api/presets/{name}/activate", handleActivatePreset)
-	mux.HandleFunc("POST "+pfx+"/api/presets/{name}/rename", handleRenamePreset)
-	mux.HandleFunc("GET "+pfx+"/api/presets/{name}/files", handleListFiles)
-	mux.HandleFunc("GET "+pfx+"/api/presets/{name}/files/{file}", handleGetFile)
-	mux.HandleFunc("POST "+pfx+"/api/presets/{name}/files", handleUploadFile)
-	mux.HandleFunc("DELETE "+pfx+"/api/presets/{name}/files/{file}", handleDeleteFile)
-	mux.HandleFunc("POST "+pfx+"/api/import", handleImport)
-	mux.HandleFunc("GET "+pfx+"/qr", handleQR)
-	mux.HandleFunc("GET "+pfx+"/url", handleURL)
-	mux.HandleFunc("GET /ping", handlePing)
-	mux.HandleFunc("POST /kill", handleKill)
+// New builds a Server with a fresh token and the scriptlet endpoints wired.
+// dev skips firewall opening so the binary runs on a non-Kindle host.
+func New(name string, port int, dev bool) *Server {
+	s := &Server{
+		ServeMux: http.NewServeMux(),
+		Port:     port,
+		Token:    genToken(),
+		name:     name,
+		dev:      dev,
+	}
+	s.HandleFunc("GET /url", LocalhostOnly(s.handleURL))
+	s.HandleFunc("GET /qr", LocalhostOnly(s.handleQR))
+	s.HandleFunc("POST /kill", LocalhostOnly(s.handleKill))
+	s.HandleFunc("GET /ping", s.handlePing)
+	return s
 }
 
-// Run binds, writes the readiness token file, and serves until the listener
-// closes. It returns the underlying serve error.
-func Run(c Config) error {
-	port = c.Port
-	devMode = c.DevMode
-	if devMode {
-		blanket = devDir
+// LocalhostOnly wraps h to reject requests not coming from 127.0.0.1 / ::1.
+func LocalhostOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || (host != "127.0.0.1" && host != "::1") {
+			log.Printf("%s %s rejected from %s", r.Method, r.URL.Path, r.RemoteAddr)
+			http.Error(w, "forbidden", 403)
+			return
+		}
+		h(w, r)
+	}
+}
+
+// URL returns the external-facing URL for the UI, or "" if no non-loopback IP
+// is available. r is optional; if set, its Host is used as a fallback when
+// DetectIP fails and the caller isn't on loopback.
+func (s *Server) URL(r *http.Request) string {
+	ip := kindle.DetectIP()
+	if ip == "" && r != nil {
+		if h, _, err := net.SplitHostPort(r.Host); err == nil && h != "" && h != "127.0.0.1" && h != "localhost" {
+			ip = h
+		}
+	}
+	if ip == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d/%s/", ip, s.Port, s.Token)
+}
+
+// HandleProtected registers h under the token prefix. Pattern is
+// http.ServeMux's "[METHOD ]PATH"; the token is inserted right before PATH.
+func (s *Server) HandleProtected(pattern string, h http.Handler) {
+	method, path, hasMethod := strings.Cut(pattern, " ")
+	if hasMethod {
+		s.Handle(method+" /"+s.Token+path, h)
 	} else {
-		blanket = blanketDir
+		s.Handle("/"+s.Token+pattern, h)
 	}
-	if err := withRW(initLayout); err != nil {
-		return fmt.Errorf("init: %w", err)
-	}
-	token = genToken()
+}
 
-	mux := http.NewServeMux()
-	routes(mux, "/"+token)
+// HandleFuncProtected is the http.HandlerFunc variant of HandleProtected.
+func (s *Server) HandleFuncProtected(pattern string, h http.HandlerFunc) {
+	s.HandleProtected(pattern, h)
+}
 
-	addr := fmt.Sprintf(":%d", port)
+// Run serves until ctx is cancelled or /kill is hit.
+func (s *Server) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.stop = cancel
+
+	addr := fmt.Sprintf(":%d", s.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	if !devMode {
-		kindle.OpenFirewall(port)
-	}
-	if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil {
-		log.Printf("warning: could not write %s: %v", tokenFile, err)
+	if !s.dev {
+		kindle.OpenFirewall(s.Port)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-	stop = cancel
-	defer os.Remove(tokenFile)
-
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		log.Printf("shutdown signal received")
@@ -118,12 +126,11 @@ func Run(c Config) error {
 		log.Printf("shutdown complete")
 	}()
 
-	ip := kindle.DetectIP()
-	url := "(no wifi)"
-	if ip != "" {
-		url = fmt.Sprintf("http://%s:%d/%s/", ip, port, token)
+	url := s.URL(nil)
+	if url == "" {
+		url = "(no wifi)"
 	}
-	log.Printf("wallpapers startup: listening on %s  token=%s  url=%s  blanket=%s  dev=%v", addr, token, url, blanket, devMode)
+	log.Printf("%s startup: listening on %s  token=%s  url=%s  dev=%v", s.name, addr, s.Token, url, s.dev)
 
 	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -131,15 +138,45 @@ func Run(c Config) error {
 	return nil
 }
 
-// genToken returns 8 hex chars (~32 bits entropy)
+func (s *Server) handleURL(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	fmt.Fprintln(w, s.URL(r))
+}
+
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	log.Printf("QR fetched by UA=%q", r.UserAgent())
+	url := s.URL(r)
+	if url == "" {
+		http.Error(w, "no usable IP", 503)
+		return
+	}
+	png, err := qrcode.Encode(url, qrcode.Medium, 720)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(png)
+}
+
+func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, s.name)
+}
+
+func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
+	log.Printf("kill from %s — shutting down", r.RemoteAddr)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(204)
+	go s.stop()
+}
+
+// genToken returns 8 hex chars (~32 bits entropy).
 func genToken() string {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatalf("rand: %v", err)
 	}
 	return hex.EncodeToString(b)
-}
-
-func initLayout() error {
-	return os.MkdirAll(filepath.Join(blanket, "wallpapers"), 0755)
 }

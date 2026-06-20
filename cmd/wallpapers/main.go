@@ -2,17 +2,26 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"wallpapers/internal/server"
+	"wallpapers/internal/wallpapers"
 )
 
 func main() {
-	var (
-		dev  = flag.Bool("dev", false, "use ./dev as the blanket root, skip mntroot")
-		port = flag.Int("port", 6969, "http port")
-	)
+	dev := flag.Bool("dev", false, "use ./dev as the blanket root, skip mntroot")
 	flag.Parse()
-	log.Fatal(server.Run(server.Config{Port: *port, DevMode: *dev}))
+
+	s := server.New(wallpapers.Name, wallpapers.Port, *dev)
+	if err := wallpapers.Register(s, *dev); err != nil {
+		log.Fatal(err)
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	log.Fatal(s.Run(ctx))
 }
