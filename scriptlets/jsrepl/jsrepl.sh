@@ -7,7 +7,7 @@
 EXT=/mnt/us/jsrepl
 SERVER="$EXT/jsrepl"
 LOG=/tmp/jsrepl.log
-PORT=6970
+PORT=6767
 
 APP_ID="com.chillguys.jsrepl"
 WIDGET_DIR=/var/local/mesquite/jsrepl
@@ -27,7 +27,7 @@ rm -rf "$WIDGET_DIR"
 mkdir -p "$WIDGET_DIR"
 
 cp "$EXT/config.xml" "$WIDGET_DIR/config.xml"
-cp "$EXT/index.html" "$WIDGET_DIR/index.html"
+sed -e "s|{{PORT}}|$PORT|g" "$EXT/index.html" > "$WIDGET_DIR/index.html"
 sed -e "s|{{APP_ID}}|$APP_ID|g" -e "s|{{WIDGET_DIR}}|$WIDGET_DIR|g" \
     "$EXT/migrate.sql" | sqlite3 "$DB"
 

@@ -1,5 +1,5 @@
 {
-  description = "Wallpaper manager for Kindle (KUAL applet + web UI)";
+  description = "Kindle scriptlets and tools";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -17,10 +17,11 @@
       ];
 
       shellHook = ''
-        echo "  wallpapers dev shell"
-        echo "  run dev:    make dev"
-        echo "  build arm:  make build"
-        echo "  package:    make package"
+        echo "  kindle-tools dev shell"
+        echo "  run dev:    make dev-<tool>"
+        echo "  build arm:  make build-<tool>"
+        echo "  package:    make package-<tool>"
+        echo "  install:    make install"
         echo "  lint/fmt:   make lint  |  make fmt"
       '';
     };

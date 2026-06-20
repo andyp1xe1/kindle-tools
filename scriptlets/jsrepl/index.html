@@ -7,12 +7,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>Wallpapers</title>
-  <script>
-    // Set root font size from device DPI before stylesheet applies, else the 44px fallback wins.
-    var ppi = kindle.device.getCSSPixelsPerInch();
-    if (ppi > 0) document.documentElement.style.fontSize = (ppi * 0.15) + "px";
-  </script>
+  <title>JS REPL</title>
   <style>
     * {
       margin: 0;
@@ -95,16 +90,17 @@
     <tr>
       <td class="cell">
         <div class="stack">
+          <h1 class="hide">JS REPL</h1>
           <div id="share" class="stack hide">
             <img class="qr" alt="QR">
             <div class="url"></div>
             <div class="note">
-              Scan the QR or open the URL<br>
-              on a phone on the same wifi.
+              Open this URL from your laptop<br>
+              to send snippets.
             </div>
           </div>
-          <div id="status-waiting" class="note">Waiting for wifi</div>
-          <h1 id="status-unreachable" class="hide">Server unreachable</h1>
+          <div id="status-waiting" class="note">Waiting for URL&hellip;</div>
+          <h2 id="status-unreachable" class="hide">Server unreachable</h2>
           <div class="note big hide" id="need-wifi">need wifi</div>
           <button id="stop" type="button">Stop server</button>
         </div>
@@ -127,7 +123,7 @@
       if (url !== currentUrl) {
         currentUrl = url;
         document.querySelector(".url").textContent = url;
-        document.querySelector(".qr").src = "http://127.0.0.1:{{PORT}}/{{TOK}}/qr?t=" + Date.now();
+        document.querySelector(".qr").src = "http://127.0.0.1:{{PORT}}/qr?t=" + Date.now();
       }
       setHidden("status-waiting", true);
       setHidden("status-unreachable", true);
@@ -156,18 +152,19 @@
     function poll() {
       updateWifiHint();
       var x = new XMLHttpRequest();
-      x.open("GET", "http://127.0.0.1:{{PORT}}/{{TOK}}/url", true);
+      x.open("GET", "http://127.0.0.1:{{PORT}}/url", true);
       x.timeout = 2000;
+      function next() {setTimeout(poll, 1500);}
       x.onload = function () {
-        if (x.status !== 200) {showUnreachable(); return;}
+        if (x.status !== 200) {showUnreachable(); next(); return;}
         var body = (x.responseText || "").replace(/\s+$/, "");
         if (/^https?:\/\//.test(body)) showShare(body);
         else showWaiting();
+        next();
       };
-      x.onerror = showUnreachable;
-      x.ontimeout = showUnreachable;
+      x.onerror = function () {showUnreachable(); next();};
+      x.ontimeout = function () {showUnreachable(); next();};
       x.send();
-      setTimeout(poll, 1500);
     }
     updateWifiHint();
     setTimeout(poll, 500);
@@ -180,6 +177,7 @@
       } catch (_e) { }
     });
   </script>
+  <script src="http://127.0.0.1:{{PORT}}/executor.js"></script>
 </body>
 
 </html>

@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.6/schema.json",
   "files": {
-    "includes": ["internal/web/**", "scriptlet/index.html"]
+    "includes": ["internal/**/*.js", "internal/**/*.css", "internal/**/*.html", "scriptlets/*/index.html"]
   },
   "formatter": {
     "enabled": true,
@@ -29,7 +29,7 @@
   },
   "overrides": [
     {
-      "includes": ["scriptlet/index.html"],
+      "includes": ["scriptlets/*/index.html", "internal/jsrepl/executor.js"],
       "linter": {
         "rules": {
           "style": {
@@ -37,7 +37,8 @@
             "useTemplate": "off"
           },
           "complexity": {
-            "useArrowFunction": "off"
+            "useArrowFunction": "off",
+            "useOptionalChain": "off"
           },
           "correctness": {
             "noInnerDeclarations": "off"

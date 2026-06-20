@@ -6,7 +6,6 @@
 
 EXT=/mnt/us/wallpapers
 SERVER="$EXT/wallpapers"
-TOK_FILE=/tmp/wallpapers.token
 LOG=/tmp/wallpapers.log
 PORT=6969
 
@@ -23,15 +22,12 @@ if ! wget -q -T 1 -O /dev/null "http://127.0.0.1:$PORT/ping" 2>/dev/null; then
     i=$((i + 1))
   done
 fi
-TOK=$(cat "$TOK_FILE" 2>/dev/null) || TOK=""
-[ -z "$TOK" ] && exit 1
 
 rm -rf "$WIDGET_DIR"
 mkdir -p "$WIDGET_DIR"
 
 cp "$EXT/config.xml" "$WIDGET_DIR/config.xml"
-sed -e "s|{{PORT}}|$PORT|g" -e "s|{{TOK}}|$TOK|g" \
-    "$EXT/index.html" > "$WIDGET_DIR/index.html"
+sed -e "s|{{PORT}}|$PORT|g" "$EXT/index.html" > "$WIDGET_DIR/index.html"
 sed -e "s|{{APP_ID}}|$APP_ID|g" -e "s|{{WIDGET_DIR}}|$WIDGET_DIR|g" \
     "$EXT/migrate.sql" | sqlite3 "$DB"
 

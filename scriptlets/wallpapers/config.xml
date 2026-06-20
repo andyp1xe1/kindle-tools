@@ -9,7 +9,6 @@
     </kindle:permissions>
     <feature name="http://kindle.amazon.com/apis" required="true">
         <param name="net" value="yes" />
-        <param name="device" value="yes" />
     </feature>
     <kindle:settings>
         <kindle:setting name="internetRequired" value="no" />

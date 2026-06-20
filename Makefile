@@ -1,50 +1,38 @@
-.PHONY: dev wall-build repl-build wall-package repl-package install lint fmt clean
+.PHONY: install lint fmt clean
+.SECONDARY:
 
-NAME     := wallpapers
-PKG      := ./cmd/$(NAME)
-BIN      := dist/$(NAME)/$(NAME)
-REPL     := jsrepl
-REPL_PKG := ./cmd/$(REPL)
-REPL_BIN := dist/$(REPL)/$(REPL)
-DESTDIR  ?= /run/media/moss/Kindle
+TOOLS   := wallpapers jsrepl
+DESTDIR ?= /run/media/moss/Kindle
 
-dev:
-	go run $(PKG) -dev
+dev-%:
+	go run ./cmd/$* -dev
 
-wall-build:
-	@mkdir -p $(dir $(BIN))
+build-%:
+	@mkdir -p dist/$*
 	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-		go build -trimpath -ldflags="-s -w" -o $(BIN) $(PKG)
-	@ls -lh $(BIN)
+		go build -trimpath -ldflags="-s -w" -o dist/$*/$* ./cmd/$*
+	@ls -lh dist/$*/$*
 
-repl-build:
-	@mkdir -p $(dir $(REPL_BIN))
-	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-		go build -trimpath -ldflags="-s -w" -o $(REPL_BIN) $(REPL_PKG)
-	@ls -lh $(REPL_BIN)
+package-%: build-%
+	cp scriptlets/$*/$*.sh dist/$*.sh
+	chmod +x dist/$*.sh
+	cp scriptlets/$*/config.xml scriptlets/$*/index.html scriptlets/$*/migrate.sql dist/$*/
+	@if [ -d koreader/$*.koplugin ]; then \
+		rm -rf dist/$*.koplugin; \
+		cp -r koreader/$*.koplugin dist/$*.koplugin; \
+	fi
 
-wall-package: wall-build
-	cp scriptlet/$(NAME).sh dist/$(NAME).sh
-	chmod +x dist/$(NAME).sh
-	cp scriptlet/config.xml scriptlet/index.html scriptlet/migrate.sql dist/$(NAME)/
-	rm -rf dist/$(NAME).koplugin
-	cp -r koreader/$(NAME).koplugin dist/$(NAME).koplugin
-
-repl-package: repl-build
-	cp $(REPL)/$(REPL).sh dist/$(REPL).sh
-	chmod +x dist/$(REPL).sh
-	cp $(REPL)/config.xml $(REPL)/index.html $(REPL)/migrate.sql dist/$(REPL)/
-
-install: wall-package repl-package
+install-%: package-%
 	@test -d "$(DESTDIR)" || { echo "DESTDIR=$(DESTDIR) not found - plug in/unlock the Kindle"; exit 1; }
-	rm -rf "$(DESTDIR)/$(NAME)"
-	cp -r dist/$(NAME) "$(DESTDIR)/"
-	cp dist/$(NAME).sh "$(DESTDIR)/documents/"
-	rm -rf "$(DESTDIR)/koreader/plugins/$(NAME).koplugin"
-	cp -r dist/$(NAME).koplugin "$(DESTDIR)/koreader/plugins/"
-	rm -rf "$(DESTDIR)/$(REPL)"
-	cp -r dist/$(REPL) "$(DESTDIR)/"
-	cp dist/$(REPL).sh "$(DESTDIR)/documents/"
+	rm -rf "$(DESTDIR)/$*"
+	cp -r dist/$* "$(DESTDIR)/"
+	cp dist/$*.sh "$(DESTDIR)/documents/"
+	@if [ -d dist/$*.koplugin ]; then \
+		rm -rf "$(DESTDIR)/koreader/plugins/$*.koplugin"; \
+		cp -r dist/$*.koplugin "$(DESTDIR)/koreader/plugins/"; \
+	fi
+
+install: $(addprefix install-,$(TOOLS))
 	sync
 	@echo "Installed to $(DESTDIR) - safe to eject"
 
@@ -52,14 +40,14 @@ lint:
 	@d=$$(gofmt -l cmd/ internal/); \
 	  if [ -n "$$d" ]; then echo "needs gofmt:"; echo "$$d"; exit 1; fi
 	go vet ./...
-	shellcheck scriptlet/*.sh
-	biome check internal/web/
+	shellcheck scriptlets/*/*.sh
+	biome check internal/
 	alejandra --check flake.nix
 
 fmt:
 	gofmt -w cmd/ internal/
-	biome check --write internal/web/
+	biome check --write internal/
 	alejandra flake.nix
 
 clean:
-	rm -rf dist dev
+	rm -rf dist
