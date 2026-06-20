@@ -13,4 +13,4 @@ dist/
 *.swp
 .DS_Store
 
-kindle/
+kindle-source/
