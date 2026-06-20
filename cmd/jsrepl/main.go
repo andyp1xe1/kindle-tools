@@ -10,8 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"wallpapers/internal/jsrepl"
-	"wallpapers/internal/server"
+	"github.com/andyp1xe1/kindle-tools/internal/jsrepl"
+	"github.com/andyp1xe1/kindle-tools/internal/server"
 )
 
 func main() {

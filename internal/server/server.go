@@ -26,7 +26,7 @@ import (
 
 	"github.com/skip2/go-qrcode"
 
-	"wallpapers/internal/kindle"
+	"github.com/andyp1xe1/kindle-tools/internal/kindle"
 )
 
 type Server struct {

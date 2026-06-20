@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"wallpapers/internal/server"
-	"wallpapers/internal/wallpapers/web"
+	"github.com/andyp1xe1/kindle-tools/internal/server"
+	"github.com/andyp1xe1/kindle-tools/internal/wallpapers/web"
 )
 
 var (

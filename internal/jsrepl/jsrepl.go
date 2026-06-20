@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"wallpapers/internal/server"
+	"github.com/andyp1xe1/kindle-tools/internal/server"
 )
 
 //go:embed executor.js repl.html

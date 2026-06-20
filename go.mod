@@ -1,4 +1,4 @@
-module wallpapers
+module github.com/andyp1xe1/kindle-tools
 
 go 1.25
 

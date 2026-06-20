@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"wallpapers/internal/kindle"
+	"github.com/andyp1xe1/kindle-tools/internal/kindle"
 )
 
 func decodeName(r *http.Request, field string) (string, error) {

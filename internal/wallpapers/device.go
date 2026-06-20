@@ -3,7 +3,7 @@ package wallpapers
 import (
 	"fmt"
 
-	"wallpapers/internal/kindle"
+	"github.com/andyp1xe1/kindle-tools/internal/kindle"
 )
 
 type deviceInfo struct {
