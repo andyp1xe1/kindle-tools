@@ -1,104 +1,208 @@
 <!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jsrepl host</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font: 14px/1.45 ui-monospace, Menlo, Consolas, monospace; max-width: 980px; margin: 1.2em auto; padding: 0 1em; }
-  h1 { font-size: 1.1em; margin: 0 0 .2em; }
-  .hint { color: #888; font-size: .85em; margin-bottom: 1em; }
-  .hint a { color: inherit; }
-  textarea { width: 100%; height: 8em; font: inherit; box-sizing: border-box; padding: .5em; border: 1px solid #888; border-radius: 4px; background: transparent; color: inherit; }
-  .bar { display: flex; gap: .5em; align-items: center; margin: .5em 0 1em; }
-  button { font: inherit; padding: .3em .9em; cursor: pointer; }
-  #st { color: #888; font-size: .85em; margin-left: auto; }
-  .log { border: 1px solid #888; border-radius: 4px; padding: .5em; min-height: 18em; max-height: 60vh; overflow: auto; }
-  .row { white-space: pre-wrap; word-break: break-word; padding: .15em 0; border-bottom: 1px dotted #ccc; }
-  .row:last-child { border-bottom: none; }
-  .row .id { color: #888; margin-right: .5em; }
-  .row.cmd .body { color: #06c; }
-  .row.ok  .body { }
-  .row.err .body { color: #c33; }
-  .row .pfx { display: inline-block; width: 1.2em; color: #888; }
-  @media (prefers-color-scheme: dark) {
-    .row { border-bottom-color: #333; }
-    .row.cmd .body { color: #6cf; }
-    .row.err .body { color: #f88; }
-  }
-</style>
-</head>
-<body>
-<h1>jsrepl host</h1>
-<p class="hint">Launch the wallpapers widget on the Kindle to start the executor. Commands queue here until it connects.</p>
-<textarea id="t" placeholder="JS to run on the Kindle... Ctrl-Enter to send" autofocus></textarea>
-<div class="bar">
-  <button id="r">Run (Ctrl-Enter)</button>
-  <button id="c">Clear log</button>
-  <span id="st"></span>
-</div>
-<div id="log" class="log"></div>
-<script>
-(function(){
-  var BASE = location.pathname.replace(/\/+$/, '');
-
-  var logEl = document.getElementById('log');
-  var stEl  = document.getElementById('st');
-  var tEl   = document.getElementById('t');
-  var since = 0;
-
-  function row(cls, id, pfx, body){
-    var d = document.createElement('div');
-    d.className = 'row ' + cls;
-    var i = document.createElement('span'); i.className = 'id'; i.textContent = '#' + id;
-    var p = document.createElement('span'); p.className = 'pfx'; p.textContent = pfx;
-    var b = document.createElement('span'); b.className = 'body'; b.textContent = body;
-    d.appendChild(i); d.appendChild(p); d.appendChild(b);
-    logEl.appendChild(d);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  document.getElementById('c').onclick = function(){ logEl.innerHTML = ''; };
-  document.getElementById('r').onclick = run;
-  tEl.addEventListener('keydown', function(e){
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
-  });
-
-  function run(){
-    var code = tEl.value;
-    if (!code.trim()) return;
-    fetch(BASE + '/cmd', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code: code})
-    }).then(function(r){ return r.json(); }).then(function(j){
-      row('cmd', j.id, '>', code);
-    }).catch(function(e){
-      row('err', '?', '!', 'send failed: ' + e);
-    });
-  }
-
-  function poll(){
-    stEl.textContent = 'waiting for results...';
-    fetch(BASE + '/outbox?since=' + since).then(function(r){
-      return r.json();
-    }).then(function(results){
-      stEl.textContent = '';
-      for (var i = 0; i < results.length; i++){
-        var r = results[i];
-        if (r.id > since) since = r.id;
-        if (r.ok) row('ok',  r.id, '<', r.value);
-        else      row('err', r.id, '!', r.error);
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>jsrepl host</title>
+    <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      font:
+        14px / 1.45 ui-monospace,
+        Menlo,
+        Consolas,
+        monospace;
+      max-width: 980px;
+      margin: 1.2em auto;
+      padding: 0 1em;
+    }
+    h1 {
+      font-size: 1.1em;
+      margin: 0 0 0.2em;
+    }
+    .hint {
+      color: #888;
+      font-size: 0.85em;
+      margin-bottom: 1em;
+    }
+    .hint a {
+      color: inherit;
+    }
+    textarea {
+      width: 100%;
+      height: 8em;
+      font: inherit;
+      box-sizing: border-box;
+      padding: 0.5em;
+      border: 1px solid #888;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+    }
+    .bar {
+      display: flex;
+      gap: 0.5em;
+      align-items: center;
+      margin: 0.5em 0 1em;
+    }
+    button {
+      font: inherit;
+      padding: 0.3em 0.9em;
+      cursor: pointer;
+    }
+    #st {
+      color: #888;
+      font-size: 0.85em;
+      margin-left: auto;
+    }
+    .log {
+      border: 1px solid #888;
+      border-radius: 4px;
+      padding: 0.5em;
+      min-height: 18em;
+      max-height: 60vh;
+      overflow: auto;
+    }
+    .row {
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 0.15em 0;
+      border-bottom: 1px dotted #ccc;
+    }
+    .row:last-child {
+      border-bottom: none;
+    }
+    .row .id {
+      color: #888;
+      margin-right: 0.5em;
+    }
+    .row .ts {
+      color: #888;
+      margin-right: 0.5em;
+      font-variant-numeric: tabular-nums;
+    }
+    .row.cmd .body {
+      color: #06c;
+    }
+    .row.err .body {
+      color: #c33;
+    }
+    .row .pfx {
+      display: inline-block;
+      width: 1.2em;
+      color: #888;
+    }
+    @media (prefers-color-scheme: dark) {
+      .row {
+        border-bottom-color: #333;
       }
-      setTimeout(poll, 0);
-    }).catch(function(e){
-      stEl.textContent = 'poll error: ' + e + ' (retrying)';
-      setTimeout(poll, 1500);
-    });
-  }
-  poll();
-})();
-</script>
-</body>
+      .row.cmd .body {
+        color: #6cf;
+      }
+      .row.err .body {
+        color: #f88;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <h1>jsrepl host</h1>
+    <p class="hint">
+      Launch the wallpapers widget on the Kindle to start the executor. Commands queue here until it
+      connects.
+    </p>
+    <textarea id="t" placeholder="JS to run on the Kindle... Ctrl-Enter to send"></textarea>
+    <div class="bar">
+      <button type="button" id="r">Run (Ctrl-Enter)</button>
+      <button type="button" id="c">Clear log</button>
+      <span id="st"></span>
+    </div>
+    <div id="log" class="log"></div>
+    <script>
+    (() => {
+      var BASE = location.pathname.replace(/\/+$/, "");
+
+      var logEl = document.getElementById("log");
+      var stEl = document.getElementById("st");
+      var tEl = document.getElementById("t");
+
+      function fmtTime(iso) {
+        var d = iso ? new Date(iso) : new Date();
+        return d.toLocaleTimeString([], { hour12: false });
+      }
+
+      function row(cls, id, at, pfx, body) {
+        var d = document.createElement("div");
+        d.className = `row ${cls}`;
+        var i = document.createElement("span");
+        i.className = "id";
+        i.textContent = `#${id}`;
+        var t = document.createElement("span");
+        t.className = "ts";
+        t.textContent = fmtTime(at);
+        var p = document.createElement("span");
+        p.className = "pfx";
+        p.textContent = pfx;
+        var b = document.createElement("span");
+        b.className = "body";
+        b.textContent = body;
+        d.appendChild(i);
+        d.appendChild(t);
+        d.appendChild(p);
+        d.appendChild(b);
+        logEl.appendChild(d);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      document.getElementById("c").onclick = () => {
+        logEl.innerHTML = "";
+      };
+      document.getElementById("r").onclick = run;
+      tEl.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          run();
+        }
+      });
+
+      function run() {
+        var code = tEl.value;
+        if (!code.trim()) return;
+        fetch(`${BASE}/inbox`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: code }),
+        })
+          .then((r) => r.json())
+          .then((j) => {
+            row("cmd", j.id, j.at, ">", code);
+          })
+          .catch((e) => {
+            row("err", "?", null, "!", `send failed: ${e}`);
+          });
+      }
+
+      function poll() {
+        stEl.textContent = "waiting for results...";
+        fetch(`${BASE}/outbox`)
+          .then((r) => r.json())
+          .then((results) => {
+            stEl.textContent = "";
+            for (const r of results) {
+              if (r.ok) row("ok", r.id, r.at, "<", r.value);
+              else row("err", r.id, r.at, "!", r.error);
+            }
+            setTimeout(poll, 0);
+          })
+          .catch((e) => {
+            stEl.textContent = `poll error: ${e} (retrying)`;
+            setTimeout(poll, 1500);
+          });
+      }
+      poll();
+    })();
+    </script>
+  </body>
 </html>

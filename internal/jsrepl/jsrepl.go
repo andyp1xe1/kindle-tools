@@ -1,123 +1,56 @@
 // Package jsrepl exposes a reverse JS REPL: the Kindle's browser long-polls
 // for snippets, evals them, and posts results back. A laptop UI on the same
 // server lets you type into a textarea and watch results stream in.
-//
-// Self-contained — remove this directory and the Register call in
-// internal/server/server.go to drop the feature entirely.
 package jsrepl
 
 import (
 	"embed"
 	"encoding/json"
 	"io/fs"
-	"log"
 	"net/http"
-	"strconv"
-	"sync"
+	"sync/atomic"
 	"time"
+
+	"wallpapers/internal/server"
 )
 
 //go:embed executor.js repl.html
 var assets embed.FS
 
-const (
-	longPollWait = 25 * time.Second
-	maxQueue     = 100
-	maxResults   = 200
-)
-
 type Job struct {
-	ID   int    `json:"id"`
-	Code string `json:"code"`
+	ID   int       `json:"id"`
+	At   time.Time `json:"at"`
+	Code string    `json:"code"`
 }
 
 type Result struct {
-	ID    int    `json:"id"`
-	OK    bool   `json:"ok"`
-	Value string `json:"value,omitempty"`
-	Error string `json:"error,omitempty"`
-	At    int64  `json:"at"`
+	ID    int       `json:"id"`
+	At    time.Time `json:"at"`
+	OK    bool      `json:"ok"`
+	Value string    `json:"value,omitempty"`
+	Error string    `json:"error,omitempty"`
 }
 
-type hub struct {
-	mu       sync.Mutex
-	nextID   int
-	queue    []Job
-	queueSig chan struct{}
-	results  []Result
-	resSig   chan struct{}
-}
+var (
+	inbox     = make(chan Job, maxQueue)
+	outbox    = make(chan Result, maxResults)
+	nextJobID atomic.Int64
+)
 
-var h = &hub{
-	queueSig: make(chan struct{}),
-	resSig:   make(chan struct{}),
-}
-
-// tryDequeue pops a job if available, otherwise returns the signal channel
-// to wait on. Taking the lock once avoids the lost-wakeup race between
-// checking the queue and subscribing for new items.
-func (h *hub) tryDequeue() (Job, bool, <-chan struct{}) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.queue) > 0 {
-		j := h.queue[0]
-		h.queue = h.queue[1:]
-		return j, true, nil
-	}
-	return Job{}, false, h.queueSig
-}
-
-func (h *hub) enqueue(code string) Job {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.nextID++
-	j := Job{ID: h.nextID, Code: code}
-	h.queue = append(h.queue, j)
-	if len(h.queue) > maxQueue {
-		h.queue = h.queue[len(h.queue)-maxQueue:]
-	}
-	close(h.queueSig)
-	h.queueSig = make(chan struct{})
-	return j
-}
-
-func (h *hub) addResult(r Result) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.results = append(h.results, r)
-	if len(h.results) > maxResults {
-		h.results = h.results[len(h.results)-maxResults:]
-	}
-	close(h.resSig)
-	h.resSig = make(chan struct{})
-}
-
-func (h *hub) resultsSince(since int) ([]Result, <-chan struct{}) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var out []Result
-	for _, r := range h.results {
-		if r.ID > since {
-			out = append(out, r)
-		}
-	}
-	return out, h.resSig
-}
-
-// Register mounts the REPL endpoints under prefix. Pass "" to mount at root,
-// or e.g. "/<token>/repl" to gate it behind the existing token prefix.
-func Register(mux *http.ServeMux, prefix string) {
+// Register mounts the REPL endpoints: Kindle-side (executor + long-poll)
+// unprefixed and localhost-only, laptop-side (UI + cmd/outbox) under /{TOK}.
+func Register(s *server.Server) {
 	sub, err := fs.Sub(assets, ".")
 	if err != nil {
 		panic(err)
 	}
-	mux.HandleFunc("GET "+prefix+"/{$}", serveAsset(sub, "repl.html", "text/html; charset=utf-8"))
-	mux.HandleFunc("GET "+prefix+"/executor.js", serveAsset(sub, "executor.js", "application/javascript; charset=utf-8"))
-	mux.HandleFunc("GET "+prefix+"/ping", handlePing)
-	mux.HandleFunc("GET "+prefix+"/jsin", handleJSIn)
-	mux.HandleFunc("POST "+prefix+"/stdout", handleStdout)
-	mux.HandleFunc("POST "+prefix+"/cmd", handleCmd)
-	mux.HandleFunc("GET "+prefix+"/outbox", handleOutbox)
+	s.HandleFunc("GET /executor.js", server.LocalhostOnly(serveAsset(sub, "executor.js", "application/javascript; charset=utf-8")))
+	s.HandleFunc("GET /replin", server.LocalhostOnly(handleReplIn))
+	s.HandleFunc("POST /replout", server.LocalhostOnly(handleReplOut))
+
+	s.HandleFuncProtected("GET /{$}", serveAsset(sub, "repl.html", "text/html; charset=utf-8"))
+	s.HandleFuncProtected("POST /inbox", handleInbox)
+	s.HandleFuncProtected("GET /outbox", handleOutbox)
 }
 
 func serveAsset(sub fs.FS, name, contentType string) http.HandlerFunc {
@@ -133,44 +66,32 @@ func serveAsset(sub fs.FS, name, contentType string) http.HandlerFunc {
 	}
 }
 
-func handlePing(w http.ResponseWriter, r *http.Request) {
-	log.Printf("ping from %s", r.RemoteAddr)
-	w.Write([]byte("ok"))
-}
-
-func handleJSIn(w http.ResponseWriter, r *http.Request) {
-	deadline := time.NewTimer(longPollWait)
-	defer deadline.Stop()
-	for {
-		j, ok, sig := h.tryDequeue()
-		if ok {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(j)
-			return
-		}
-		select {
-		case <-sig:
-		case <-deadline.C:
-			w.WriteHeader(http.StatusNoContent)
-			return
-		case <-r.Context().Done():
-			return
-		}
+// handleReplIn: Kindle long-polls the inbox for the next snippet.
+func handleReplIn(w http.ResponseWriter, r *http.Request) {
+	select {
+	case j := <-inbox:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(j)
+	case <-time.After(longPollWait):
+		w.WriteHeader(http.StatusNoContent)
+	case <-r.Context().Done():
 	}
 }
 
-func handleStdout(w http.ResponseWriter, r *http.Request) {
+// handleReplOut: Kindle posts a result into the outbox.
+func handleReplOut(w http.ResponseWriter, r *http.Request) {
 	var res Result
 	if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	res.At = time.Now().Unix()
-	h.addResult(res)
+	res.At = time.Now()
+	outbox <- res
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleCmd(w http.ResponseWriter, r *http.Request) {
+// handleInbox: laptop pushes a snippet into the inbox.
+func handleInbox(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code string `json:"code"`
 	}
@@ -182,29 +103,31 @@ func handleCmd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty code", 400)
 		return
 	}
-	j := h.enqueue(body.Code)
+	j := Job{ID: int(nextJobID.Add(1)), At: time.Now(), Code: body.Code}
+	inbox <- j
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(j)
 }
 
+// handleOutbox: laptop long-polls for results, draining whatever's buffered.
 func handleOutbox(w http.ResponseWriter, r *http.Request) {
-	since, _ := strconv.Atoi(r.URL.Query().Get("since"))
-	deadline := time.NewTimer(longPollWait)
-	defer deadline.Stop()
+	w.Header().Set("Content-Type", "application/json")
+	var results []Result
+	select {
+	case res := <-outbox:
+		results = append(results, res)
+	case <-time.After(longPollWait):
+		w.Write([]byte("[]"))
+		return
+	case <-r.Context().Done():
+		return
+	}
 	for {
-		results, sig := h.resultsSince(since)
-		if len(results) > 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(results)
-			return
-		}
 		select {
-		case <-sig:
-		case <-deadline.C:
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("[]"))
-			return
-		case <-r.Context().Done():
+		case res := <-outbox:
+			results = append(results, res)
+		default:
+			json.NewEncoder(w).Encode(results)
 			return
 		}
 	}
